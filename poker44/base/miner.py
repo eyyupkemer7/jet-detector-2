@@ -211,6 +211,15 @@ class BaseMinerNeuron(BaseNeuron):
                 self.sync()
                 self.step += 1
 
+                # A miner's last_update only advances when a validator sets
+                # weights on it, so once it falls an epoch behind the wait above
+                # returns immediately and this loop would re-sync every few
+                # seconds. Pace it to roughly one block instead.
+                for _ in range(12):
+                    if self.should_exit:
+                        break
+                    time.sleep(1)
+
         # If someone intentionally stops the miner, it'll safely terminate operations.
         except KeyboardInterrupt:
             self.axon.stop()
