@@ -164,15 +164,34 @@ class BaseNeuron(ABC):
 
     def check_registered(self):
         # --- Check for registration.
-        if not self.subtensor.is_hotkey_registered(
-            netuid=self.config.netuid,
-            hotkey_ss58=self.wallet.hotkey.ss58_address,
-        ):
-            bt.logging.error(
-                f"Wallet: {self.wallet} is not registered on netuid {self.config.netuid}."
-                f" Please register the hotkey using `btcli subnets register` before trying again"
-            )
-            exit()
+        # Public RPC endpoints intermittently serve this read against a block they
+        # do not have and report a registered hotkey as unregistered, so a single
+        # negative is retried before it is treated as authoritative. This runs in
+        # the sync thread, where exit() would silently kill the run loop.
+        attempts = 5
+        for attempt in range(1, attempts + 1):
+            try:
+                if self.subtensor.is_hotkey_registered(
+                    netuid=self.config.netuid,
+                    hotkey_ss58=self.wallet.hotkey.ss58_address,
+                ):
+                    return
+                reason = "chain reported the hotkey as unregistered"
+            except Exception as err:
+                reason = f"registration lookup failed: {err}"
+
+            if attempt < attempts:
+                bt.logging.warning(
+                    f"Registration check {attempt}/{attempts} inconclusive on netuid "
+                    f"{self.config.netuid} ({reason}). Retrying."
+                )
+                time.sleep(2 * attempt)
+
+        bt.logging.error(
+            f"Wallet: {self.wallet} is not registered on netuid {self.config.netuid}."
+            f" Please register the hotkey using `btcli subnets register` before trying again"
+        )
+        exit()
 
     def should_sync_metagraph(self):
         """
